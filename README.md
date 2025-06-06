@@ -8,9 +8,12 @@ Display a countdown to important dates directly on your iOS home screen via widg
 
 _Based on [jvscholz's countdown widget](https://github.com/jvscholz/website/blob/master/assets/countdown_widget/countdown.js) and updated to work on iPhone 16 Pro and various widget sizes_
 
-**Key Features**
+**Key Features:**
 
 - 📱 **Responsive design** - Adapts to small, medium, and large widget sizes
+- 🧠 **Intelligent grouping** - Automatically switches from days to weeks to months for longer countdowns
+- 🎨 **Background customization** - Supports custom images with automatic fallback to solid colors
+- ⚡ **Smart optimization** - Performance-tuned for extended time periods with 8 PM cutoff logic
 
 ## 🌱 Habit Tracker
 
