@@ -88,17 +88,20 @@ const MS_PER_DAY = 86400000;
 // load existing x days data
 const xDays = loadTrackerData();
 
-// Check if it's after 8 PM, adjust days since start accordingly
+// Calculate actual days since start (for toggle logic)
+const actualDaysSinceStart = Math.floor((NOW - START_DATE) / MS_PER_DAY);
+
+// Check if it's after 8 PM, adjust for display purposes only
 const CURRENT_HOUR = NOW.getHours();
-let adjustedDaysSinceStart = Math.floor((NOW - START_DATE) / MS_PER_DAY);
+let adjustedDaysSinceStart = actualDaysSinceStart;
 if (CURRENT_HOUR >= 20) {
   adjustedDaysSinceStart += 1;
 }
 
 const DAYS_UNTIL_END = Math.max(0, DAYS_TOTAL - adjustedDaysSinceStart);
 
-// check if today needs to be marked
-const TODAY_INDEX = adjustedDaysSinceStart - 1;
+// Toggle logic should always work on actual calendar day, not adjusted day
+const TODAY_INDEX = actualDaysSinceStart - 1;
 const todayInRange = TODAY_INDEX >= 0 && TODAY_INDEX < DAYS_TOTAL;
 const todayIsX = xDays.includes(TODAY_INDEX);
 
@@ -160,7 +163,7 @@ const calculateLongestStreak = (totalDays, xDaysArray, completedDays) => {
 const LONGEST_STREAK = calculateLongestStreak(
   DAYS_TOTAL,
   xDays,
-  adjustedDaysSinceStart
+  actualDaysSinceStart
 );
 
 // Widget family and responsive sizing
@@ -395,7 +398,7 @@ createDotGrid(
   finalRows,
   COLUMNS,
   grouping,
-  adjustedDaysSinceStart,
+  actualDaysSinceStart,
   xDays
 );
 
@@ -467,14 +470,24 @@ if (widgetFamily === "small") {
 
   const daysLeftText = topRow.addText(daysText);
   daysLeftText.font = MENLO_BOLD;
-  daysLeftText.textColor = COLOR_FILLED;
-
-  // second row with streak info
+  daysLeftText.textColor = COLOR_FILLED; // second row with streak info (aligned right like the progress)
   const bottomRow = footer.addStack();
-  bottomRow.addSpacer(YEAR_OFFSET);
-  const streakText = bottomRow.addText(`longest streak: ${LONGEST_STREAK}`);
-  streakText.font = MENLO_REGULAR;
-  streakText.textColor = COLOR_FILLED;
+  bottomRow.layoutHorizontally();
+
+  // Calculate total left spacing to match the progress line exactly
+  const totalLeftSpacing = YEAR_OFFSET + eventTextWidth;
+  bottomRow.addSpacer(totalLeftSpacing);
+
+  // Calculate spacing to align streak to the right
+  const streakText = `longest streak: ${LONGEST_STREAK}`;
+  const streakTextWidth = streakText.length * CHAR_WIDTH;
+  const streakSpacerLength = availableSpace - streakTextWidth;
+
+  bottomRow.addSpacer(streakSpacerLength);
+
+  const streakLabel = bottomRow.addText(streakText);
+  streakLabel.font = MENLO_REGULAR;
+  streakLabel.textColor = COLOR_FILLED;
 }
 
 Script.setWidget(widget);
