@@ -88,51 +88,53 @@ const MS_PER_DAY = 86400000;
 // load existing x days data
 const xDays = loadTrackerData();
 
-// Calculate actual days since start (for toggle logic)
+// calculate actual days since start (for all logic)
 const actualDaysSinceStart = Math.floor((NOW - START_DATE) / MS_PER_DAY);
 
-// Check if it's after 8 PM, adjust for display purposes only
-const CURRENT_HOUR = NOW.getHours();
-let adjustedDaysSinceStart = actualDaysSinceStart;
-if (CURRENT_HOUR >= 20) {
-  adjustedDaysSinceStart += 1;
-}
+// calculate days left based on actual completed days (to match dot display)
+const DAYS_UNTIL_END = Math.max(0, DAYS_TOTAL - actualDaysSinceStart);
 
-const DAYS_UNTIL_END = Math.max(0, DAYS_TOTAL - adjustedDaysSinceStart);
-
-// Toggle logic should always work on actual calendar day, not adjusted day
+// toggle logic should always work on actual calendar day, not adjusted day
 const TODAY_INDEX = actualDaysSinceStart - 1;
 const todayInRange = TODAY_INDEX >= 0 && TODAY_INDEX < DAYS_TOTAL;
 const todayIsX = xDays.includes(TODAY_INDEX);
 
-// allow user to toggle today between x and dot (always show popup when in app)
-if (config.runsInApp && todayInRange) {
+// ===================================================
+// INTERACTIVE TOGGLE LOGIC
+// ===================================================
+
+async function handleTodayToggle(todayIndex, isCurrentlyX, xDaysArray) {
   const alert = new Alert();
   alert.title = "toggle today";
 
-  const currentState = todayIsX ? "X" : "dot";
-  const toggleTo = todayIsX ? "dot" : "X";
+  const currentState = isCurrentlyX ? "X" : "dot";
+  const toggleTo = isCurrentlyX ? "dot" : "X";
 
   alert.message = `day ${
-    TODAY_INDEX + 1
+    todayIndex + 1
   } is currently: ${currentState}\nwhat would you like to change it to?`;
   alert.addAction(`change to ${toggleTo}`);
   alert.addAction(`keep as ${currentState}`);
 
   const choice = await alert.present();
   if (choice === 0) {
-    if (todayIsX) {
+    if (isCurrentlyX) {
       // remove from x days (change X to dot)
-      const index = xDays.indexOf(TODAY_INDEX);
+      const index = xDaysArray.indexOf(todayIndex);
       if (index > -1) {
-        xDays.splice(index, 1);
+        xDaysArray.splice(index, 1);
       }
     } else {
       // add to x days (change dot to X)
-      xDays.push(TODAY_INDEX);
+      xDaysArray.push(todayIndex);
     }
-    saveTrackerData(xDays);
+    saveTrackerData(xDaysArray);
   }
+}
+
+// handle user interaction in app
+if (config.runsInApp && todayInRange) {
+  await handleTodayToggle(TODAY_INDEX, todayIsX, xDays);
 }
 
 // calculate longest streak of dots (broken by x days)
@@ -166,25 +168,24 @@ const LONGEST_STREAK = calculateLongestStreak(
   actualDaysSinceStart
 );
 
-// Widget family and responsive sizing
+// ===================================================
+// WIDGET CONFIGURATION AND SIZING
+// ===================================================
+
+// widget family and responsive sizing
 const widgetFamily = config.widgetFamily || "medium";
 
-function getWidgetDimensions() {
-  switch (widgetFamily) {
-    case "small":
-      return { width: 158, height: 158 };
-    case "medium":
-      return { width: 338, height: 158 };
-    case "large":
-      return { width: 338, height: 354 };
-    default:
-      return { width: 338, height: 158 };
-  }
-}
+// consolidated widget limits configuration
+const WIDGET_LIMITS = {
+  small: { maxRows: 4, maxCols: 8, width: 158, height: 158 },
+  medium: { maxRows: 6, maxCols: 25, width: 338, height: 158 },
+  large: { maxRows: 20, maxCols: 25, width: 338, height: 354 },
+};
 
-const WIDGET_WIDTH = getWidgetDimensions().width;
+const WIDGET_WIDTH =
+  WIDGET_LIMITS[widgetFamily]?.width || WIDGET_LIMITS.medium.width;
 
-// Responsive sizing for longer periods
+// responsive sizing for longer periods
 let responsiveCircleSize = CIRCLE_SIZE;
 let responsiveSpacing = CIRCLE_SPACING;
 
@@ -197,13 +198,7 @@ if (DAYS_TOTAL > 90) {
 }
 
 function calculateOptimalGrouping(totalDays, widgetFamily) {
-  const maxDotsForWidget = {
-    small: { maxRows: 4, maxCols: 8 },
-    medium: { maxRows: 6, maxCols: 25 },
-    large: { maxRows: 20, maxCols: 25 },
-  };
-
-  const limits = maxDotsForWidget[widgetFamily] || maxDotsForWidget["medium"];
+  const limits = WIDGET_LIMITS[widgetFamily] || WIDGET_LIMITS.medium;
   const maxDots = limits.maxRows * limits.maxCols;
 
   if (totalDays <= maxDots) {
@@ -225,22 +220,14 @@ function calculateOptimalGrouping(totalDays, widgetFamily) {
 
 const grouping = calculateOptimalGrouping(DAYS_TOTAL, widgetFamily);
 
-// Calculate columns and rows
+// calculate columns and rows using consolidated configuration
 const COLUMNS = Math.floor(
   (WIDGET_WIDTH - 2 * PADDING - DOT_SHIFT_LEFT) /
     (responsiveCircleSize + responsiveSpacing)
 );
 
 const ROWS = Math.ceil(grouping.totalDots / COLUMNS);
-
-// Apply max row limits - use the same data structure as in calculateOptimalGrouping
-const maxDotsForWidget = {
-  small: { maxRows: 4, maxCols: 8 },
-  medium: { maxRows: 6, maxCols: 25 },
-  large: { maxRows: 20, maxCols: 25 },
-};
-
-const maxRows = maxDotsForWidget[widgetFamily]?.maxRows || 6;
+const maxRows = WIDGET_LIMITS[widgetFamily]?.maxRows || 6;
 const finalRows = Math.min(ROWS, maxRows);
 
 // ===================================================
@@ -275,7 +262,7 @@ async function setupBackground(widget) {
 
 await setupBackground(widget);
 
-// Add overlay
+// add overlay
 const overlay = new LinearGradient();
 overlay.locations = [0, 1];
 overlay.colors = [
@@ -284,13 +271,13 @@ overlay.colors = [
 ];
 widget.backgroundGradient = overlay;
 
-// Set fonts
+// set fonts
 const MENLO_REGULAR = new Font("Menlo", 12);
 const MENLO_BOLD = new Font("Menlo-Bold", 12);
 
 widget.setPadding(12, PADDING, 12, PADDING);
 
-// Handle completion case
+// handle completion case
 if (DAYS_UNTIL_END <= 0) {
   const completedText = widget.addText(`${EVENT_NAME} completed! 🎉`);
   completedText.font = MENLO_BOLD;
@@ -307,6 +294,10 @@ if (DAYS_UNTIL_END <= 0) {
   return;
 }
 
+// ===================================================
+// DOT GRID CREATION
+// ===================================================
+
 function createDotGrid(
   widget,
   rows,
@@ -318,7 +309,7 @@ function createDotGrid(
   const gridContainer = widget.addStack();
   gridContainer.layoutVertically();
 
-  // add grouping indicator if not showing individual days
+  // add grouping indicator if showing grouped days
   if (grouping.daysPerDot > 1) {
     const indicatorStack = gridContainer.addStack();
     indicatorStack.addSpacer(DOT_SHIFT_LEFT);
@@ -330,6 +321,7 @@ function createDotGrid(
     gridContainer.addSpacer(4);
   }
 
+  // prepare the grid layout and fonts
   const gridStack = gridContainer.addStack();
   gridStack.layoutVertically();
   gridStack.spacing = responsiveSpacing;
@@ -337,60 +329,79 @@ function createDotGrid(
   const dotFont = Font.systemFont(responsiveCircleSize);
   const xFont = Font.systemFont(responsiveCircleSize);
 
-  // create rows using map for cleaner code
-  Array.from({ length: rows }, (_, row) => {
+  // helper function to add a symbol to a row
+  function addSymbol(row, symbol, font, color) {
+    const element = row.addText(symbol);
+    element.font = font;
+    element.textColor = color;
+    return element;
+  }
+
+  // helper function to determine dot status for individual days
+  function getDotStatusForDay(index) {
+    const isXDay = xDaysArray.includes(index);
+    const isCompleted = index < completedDays;
+
+    if (isXDay) {
+      return { symbol: "✕", color: COLOR_X, font: xFont };
+    } else {
+      return {
+        symbol: "●",
+        color: isCompleted ? COLOR_FILLED : COLOR_UNFILLED,
+        font: dotFont,
+      };
+    }
+  }
+
+  // helper function to determine dot status for grouped days
+  function getDotStatusForGroup(groupIndex) {
+    const daysRepresented = (groupIndex + 1) * grouping.daysPerDot;
+    const isCompleted =
+      completedDays >= daysRepresented - (grouping.daysPerDot - 1);
+
+    // check if any day in the group is marked as X
+    const hasXDay = Array.from(
+      { length: grouping.daysPerDot },
+      (_, i) => groupIndex * grouping.daysPerDot + i
+    ).some(
+      (dayIndex) => dayIndex < DAYS_TOTAL && xDaysArray.includes(dayIndex)
+    );
+
+    if (hasXDay) {
+      return { symbol: "✕", color: COLOR_X, font: xFont };
+    } else {
+      return {
+        symbol: "●",
+        color: isCompleted ? COLOR_FILLED : COLOR_UNFILLED,
+        font: dotFont,
+      };
+    }
+  }
+
+  // create rows and columns
+  for (let row = 0; row < rows; row++) {
     const rowStack = gridStack.addStack();
     rowStack.layoutHorizontally();
     rowStack.addSpacer(DOT_SHIFT_LEFT);
 
-    // create columns for this row
-    Array.from({ length: columns }, (_, col) => {
+    for (let col = 0; col < columns; col++) {
       const dotIndex = row * columns + col;
-      if (dotIndex >= grouping.totalDots) return;
+      if (dotIndex >= grouping.totalDots) continue;
 
-      const addSymbol = (symbol, font, color) => {
-        const element = rowStack.addText(symbol);
-        element.font = font;
-        element.textColor = color;
-      };
+      // get dot status based on whether we're showing individual days or groups
+      const dotStatus =
+        grouping.daysPerDot === 1
+          ? getDotStatusForDay(dotIndex)
+          : getDotStatusForGroup(dotIndex);
 
-      // individual days logic
-      if (grouping.daysPerDot === 1) {
-        const isXDay = xDaysArray.includes(dotIndex);
-        const isCompleted = dotIndex < completedDays;
-
-        if (isXDay) {
-          addSymbol("✕", xFont, COLOR_X);
-        } else {
-          addSymbol("●", dotFont, isCompleted ? COLOR_FILLED : COLOR_UNFILLED);
-        }
-      } else {
-        // grouped days logic
-        const daysRepresented = (dotIndex + 1) * grouping.daysPerDot;
-        const isCompleted =
-          completedDays >= daysRepresented - (grouping.daysPerDot - 1);
-
-        // check if any day in this group is an x day
-        const hasXDay = Array.from(
-          { length: grouping.daysPerDot },
-          (_, i) => dotIndex * grouping.daysPerDot + i
-        ).some(
-          (dayIndex) => dayIndex < DAYS_TOTAL && xDaysArray.includes(dayIndex)
-        );
-
-        if (hasXDay) {
-          addSymbol("✕", xFont, COLOR_X);
-        } else {
-          addSymbol("●", dotFont, isCompleted ? COLOR_FILLED : COLOR_UNFILLED);
-        }
-      }
+      addSymbol(rowStack, dotStatus.symbol, dotStatus.font, dotStatus.color);
 
       // add spacing between columns
       if (col < columns - 1 && dotIndex + 1 < grouping.totalDots) {
         rowStack.addSpacer(responsiveSpacing);
       }
-    });
-  });
+    }
+  }
 }
 
 createDotGrid(
@@ -404,62 +415,64 @@ createDotGrid(
 
 widget.addSpacer(TEXT_SPACING);
 
-// Footer with event name and progress
-const footer = widget.addStack();
+// ===================================================
+// FOOTER CREATION
+// ===================================================
+
+// calculate display text constants
 const progressPercentage = Math.round(
-  (adjustedDaysSinceStart / DAYS_TOTAL) * 100
+  (actualDaysSinceStart / DAYS_TOTAL) * 100
 );
+const CHAR_WIDTH = 7.5;
+
+// prepare text content
+const daysText =
+  grouping.daysPerDot === 1
+    ? `${DAYS_UNTIL_END} days left (${progressPercentage}%)`
+    : `${DAYS_UNTIL_END} days (${Math.ceil(
+        DAYS_UNTIL_END / grouping.daysPerDot
+      )} ${grouping.unit}s) left`;
+
+const streakText = `longest streak: ${LONGEST_STREAK}`;
+
+// create footer
+const footer = widget.addStack();
+footer.layoutVertically();
+footer.spacing = 4;
 
 if (widgetFamily === "small") {
-  footer.layoutVertically();
-  footer.spacing = 4;
-
-  // Event name
+  // SMALL WIDGET: Vertical stacking
   const eventStack = footer.addStack();
   eventStack.addSpacer(YEAR_OFFSET);
   const eventText = eventStack.addText(EVENT_NAME);
   eventText.font = MENLO_BOLD;
   eventText.textColor = COLOR_FILLED;
 
-  // Progress info
   const daysStack = footer.addStack();
   daysStack.addSpacer(YEAR_OFFSET);
-
-  const daysText =
-    grouping.daysPerDot === 1
-      ? `${DAYS_UNTIL_END} days left (${progressPercentage}%)`
-      : `${DAYS_UNTIL_END} days (${Math.ceil(
-          DAYS_UNTIL_END / grouping.daysPerDot
-        )} ${grouping.unit}s) left`;
-
   const daysLeftText = daysStack.addText(daysText);
   daysLeftText.font = MENLO_REGULAR;
   daysLeftText.textColor = COLOR_FILLED;
 
-  // streak info on separate line
   const streakStack = footer.addStack();
   streakStack.addSpacer(YEAR_OFFSET);
-  const streakText = streakStack.addText(`longest streak: ${LONGEST_STREAK}`);
-  streakText.font = MENLO_REGULAR;
-  streakText.textColor = COLOR_FILLED;
+  const streakLabel = streakStack.addText(streakText);
+  streakLabel.font = MENLO_REGULAR;
+  streakLabel.textColor = COLOR_FILLED;
 } else {
-  footer.layoutVertically();
-  footer.spacing = 4;
+  // MEDIUM/LARGE WIDGETS: Horizontal alignment with right-aligned values
 
-  // first row with event name and progress
+  // FIRST ROW: Event name and days left
   const topRow = footer.addStack();
   topRow.layoutHorizontally();
 
-  // Event name
+  // event name (left aligned)
   topRow.addSpacer(YEAR_OFFSET);
   const eventText = topRow.addText(EVENT_NAME);
   eventText.font = MENLO_BOLD;
   eventText.textColor = COLOR_FILLED;
 
-  // Progress info
-  const daysText = `${DAYS_UNTIL_END} days left (${progressPercentage}%)`;
-
-  const CHAR_WIDTH = 7.5;
+  // calculate spacing for right alignment of days text
   const eventTextWidth = EVENT_NAME.length * CHAR_WIDTH;
   const daysTextWidth = daysText.length * CHAR_WIDTH;
   const availableSpace =
@@ -467,28 +480,29 @@ if (widgetFamily === "small") {
   const spacerLength = availableSpace - daysTextWidth;
 
   topRow.addSpacer(spacerLength);
-
   const daysLeftText = topRow.addText(daysText);
   daysLeftText.font = MENLO_BOLD;
-  daysLeftText.textColor = COLOR_FILLED; // second row with streak info (aligned right like the progress)
+  daysLeftText.textColor = COLOR_FILLED;
+
+  // Second Row: Streak info (aligned right)
   const bottomRow = footer.addStack();
   bottomRow.layoutHorizontally();
 
-  // Calculate total left spacing to match the progress line exactly
   const totalLeftSpacing = YEAR_OFFSET + eventTextWidth;
   bottomRow.addSpacer(totalLeftSpacing);
 
-  // Calculate spacing to align streak to the right
-  const streakText = `longest streak: ${LONGEST_STREAK}`;
   const streakTextWidth = streakText.length * CHAR_WIDTH;
   const streakSpacerLength = availableSpace - streakTextWidth;
-
   bottomRow.addSpacer(streakSpacerLength);
 
   const streakLabel = bottomRow.addText(streakText);
   streakLabel.font = MENLO_REGULAR;
   streakLabel.textColor = COLOR_FILLED;
 }
+
+// ===================================================
+// FINALIZE AND PRESENT THE WIDGET
+// ===================================================
 
 Script.setWidget(widget);
 Script.complete();
